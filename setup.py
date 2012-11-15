@@ -1,6 +1,7 @@
 #!/usr/bin/python
 from distutils.core import setup, Extension
 import sys
+from glob import glob
 
 __version__ = "1.0.0"
 
@@ -8,6 +9,15 @@ if sys.platform == "darwin":
     extra_flags=['-arch', 'i386', '-arch', 'x86_64']
 else:
     extra_flags=[]
+
+# Add prebuilt X.509 C sources to sources list
+sources = glob("asn1c/examples/sample.source.PKIX1/*.c")
+extra_flags.extend([
+    '-Iasn1c/examples/sample.source.PKIX1',
+    '-DPDU=Certificate'
+])
+sources.append('cx509.c')
+sources.remove('asn1c/examples/sample.source.PKIX1/converter-sample.c')
 
 setup(
     name         = "cx509",
@@ -20,7 +30,7 @@ setup(
     platforms    = ["Platform Independent"],
     ext_modules  = [Extension(
             name='cx509', 
-            sources=['cx509.c'],
+            sources=sources,
             extra_compile_args=extra_flags,
             extra_link_args=extra_flags
             )],
