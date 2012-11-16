@@ -283,7 +283,7 @@ cx509_extensions(cx509 *self)
 				}
 			    }
 			    if (PyList_Size(dNSNames))
-				PyDict_SetItemString(dict, "DNSName", dNSNames);
+				PyDict_SetItemString(dict, "dNSName", dNSNames);
 			    else
 				Py_DECREF(dNSNames);
 			}
