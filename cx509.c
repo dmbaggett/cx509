@@ -159,6 +159,7 @@ cx509_get_version(cx509 *self)
     return PyInt_FromLong(v);
 }
 
+/* get the list of extensions; note that we only parse the ones we understand, but get get the critical flag for all */
 static PyObject *
 cx509_extensions(cx509 *self)
 {
@@ -202,6 +203,13 @@ cx509_extensions(cx509 *self)
 
 	    /* parse known extensions */
 	    if (oid) {
+		/* 
+		 * TBD: these might be necessary to validate some certs:
+		 *
+		 *  issuerAltName { 2.5.29.18 }
+		 *  nameConstraints { 2.5.29.30 }
+		 *  CRLDistributionPoints { 2.5.29.31 }
+		 */
 		if (!strcmp(oid, "{ 2.5.29.15 }")) {
 		    tmp = PyString_FromString("keyUsage");
 		    PyDict_SetItemString(dict, "name", tmp);
