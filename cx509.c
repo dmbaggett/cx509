@@ -143,6 +143,21 @@ static oid_t OIDs[] = {
     { NULL,  NULL }
 };
 
+static int nOIDs_short_names = 0; /* set dynamically by find_oid */
+static oid_t OID_short_names[] = {
+    { "{ 2.5.4.10 }", "O" },
+    { "{ 2.5.4.11 }", "OU" },
+    { "{ 2.5.4.3 }", "CN" },
+    { "{ 2.5.4.4 }", "SN" },
+    { "{ 2.5.4.42 }", "GN" },
+    { "{ 2.5.4.6 }", "CN" },
+    { "{ 2.5.4.7 }", "L" },
+    { "{ 2.5.4.8 }", "ST" },
+
+    /* sentinel */
+    { NULL,  NULL }
+};
+
 /* Forward declarations */
 static PyTypeObject cx509Type;
 static PyObject *cx509_parse(cx509 *self, PyObject *args, PyObject *kw);
@@ -150,7 +165,7 @@ static char *_oid_to_string(OBJECT_IDENTIFIER_t *oid);
 static void _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence);
 static void _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name);;
 static PyObject *_directory_string_to_string(DirectoryString_t *ds, char encoding[16]);
-static const char *find_oid(const char *dotted);
+static const char *find_oid(const char *dotted, int shortname);
 
 static PyObject *
 cx509_new(PyTypeObject *type, PyObject *args, PyObject *kw)
@@ -377,7 +392,7 @@ _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence)
 	for (j = 0; j < rdnSequence->list.array[i]->list.count; j++) {
 	    atv = rdnSequence->list.array[i]->list.array[j];
 	    atype = _oid_to_string(&atv->type);
-	    name = find_oid(atype);
+	    name = find_oid(atype, /*shortname:*/ 0);
 	    _add_directory_string_to_dict(&atv->value, dict, name ? name : atype);
 	    if (atype)
 		PyMem_Free(atype);
@@ -742,33 +757,46 @@ _oid_to_string(OBJECT_IDENTIFIER_t *oid)
 }
 
 /**
- * Find OID name from dotted string.
+ * Find OID name or shortname from dotted string.
  */
 static const char *
-find_oid(const char *dotted)
+find_oid(const char *dotted, int shortname)
 {
-    int lo, hi;
-    int len;
+    int lo, hi, len;
+    oid_t *oids;
 
-    if (nOIDs) {
-	len = nOIDs;
+    if (shortname) {
+	oids = OID_short_names;
+	if (nOIDs_short_names) {
+	    len = nOIDs_short_names;
+	}
+	else {
+	    for (len = 0; OID_short_names[len].dotted; ++len);
+	    nOIDs_short_names = len;
+	}
     }
     else {
-	for (len = 0; OIDs[len].dotted; ++len);
-	nOIDs = len;
+	oids = OIDs;
+	if (nOIDs) {
+	    len = nOIDs;
+	}
+	else {
+	    for (len = 0; OIDs[len].dotted; ++len);
+	    nOIDs = len;
+	}
     }
 
     lo = 0;
     hi = len - 1;
     while (lo <= hi) {
 	int mid = ((unsigned int) lo + (unsigned int) hi) >> 1;
-	int cmp = strcmp(dotted, OIDs[mid].dotted);
+	int cmp = strcmp(dotted, oids[mid].dotted);
 	if (cmp > 0)
 	    lo = mid + 1;
 	else if (cmp < 0)
 	    hi = mid - 1;
 	else
-	    return OIDs[mid].name;	/* found */
+	    return oids[mid].name;	/* found */
     }
     return NULL; /* not found */
 }
