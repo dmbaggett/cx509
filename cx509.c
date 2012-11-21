@@ -3,6 +3,9 @@
  * This extension module exports the cx509 type. The underlying implementation is provided by
  * sset.c.
  *
+ * See http://stackoverflow.com/questions/9394125/asn1c-der-decoder for alterations required for
+ * compiling under MSVC.
+ *
  * dmb - Nov 2012 - Copyright (C) 2012 Arcode Corporation
  */
 #include <Python.h>
@@ -19,6 +22,9 @@
 #include "BasicConstraints.h"
 #include "KeyUsage.h"
 #include "SubjectAltName.h"
+
+/* PKCS1 types we need */
+#include "RSAPublicKey.h"
 
 /* other types we need */
 #include "DirectoryString.h"
@@ -209,6 +215,7 @@ static oid_t OID_short_names[] = {
 static PyTypeObject cx509Type;
 static PyObject *cx509_parse(cx509 *self, PyObject *args, PyObject *kw);
 static char *_oid_to_string(OBJECT_IDENTIFIER_t *oid);
+static char *_integer_to_hex_string(INTEGER_t *I);
 static void _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence);
 static void _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name);;
 static PyObject *_directory_string_to_string(DirectoryString_t *ds, char encoding[16]);
@@ -312,7 +319,7 @@ cx509___str__(cx509 *self)
 
     /* write the output */
     if (asn_DEF_Certificate.print_struct(&asn_DEF_Certificate, self->certificate, 1, _print2buffer, (void *) &output)) {
-	free(output);
+	PyMem_Free(output);
 	return NULL;
     }
 
@@ -787,6 +794,10 @@ cx509_get_public_key(cx509 *self)
     const char *algorithm_oid;
     const char *algorithm_name;
     SubjectPublicKeyInfo_t *spki;
+    RSAPublicKey_t *rsapk = NULL;
+    asn_dec_rval_t rval;
+    char *modulus;
+    char *publicExponent;
 
     dict = PyDict_New();
     spki = &self->certificate->tbsCertificate.subjectPublicKeyInfo;
@@ -812,8 +823,29 @@ cx509_get_public_key(cx509 *self)
 
     /* if we know about this algorithm, decode the key */
     if (!strcmp(algorithm_oid, "{ 1.2.840.113549.1.1.1 }")) {
-	/* RSA */
-	
+	rval = ber_decode(0, &asn_DEF_RSAPublicKey, 
+			  (void **) &rsapk,
+			  (const void *) spki->subjectPublicKey.buf, 
+			  (size_t) spki->subjectPublicKey.size);
+	if (rval.code == RC_OK) {
+	    /* the modulus is usually huge, so we need to convert it to hex, then have Python parse it into a long (bignum) */
+	    modulus = _integer_to_hex_string(&rsapk->modulus);
+	    if (modulus) {
+		tmp = PyLong_FromString(modulus, NULL, 16);
+		PyDict_SetItemString(dict, "modulus", tmp);
+		PyMem_Free(modulus);
+		Py_DECREF(tmp);
+	    }
+
+	    /* the public exponent is usually small (e.g., 3 or 65537), but we make no assumptions here */
+	    publicExponent = _integer_to_hex_string(&rsapk->publicExponent);
+	    if (publicExponent) {
+		tmp = PyLong_FromString(publicExponent, NULL, 16);
+		PyDict_SetItemString(dict, "public_exponent", tmp);
+		PyMem_Free(publicExponent);
+		Py_DECREF(tmp);
+	    }
+	}
     }
     
     return dict;
@@ -863,7 +895,7 @@ _oid_to_string(OBJECT_IDENTIFIER_t *oid)
 
     /* write the output */
     if (OBJECT_IDENTIFIER_print(NULL, (const void *) oid, 0, _print2buffer, (void *) &output)) {
-	free(output);
+	PyMem_Free(output);
 	return NULL;
     }
     
@@ -915,6 +947,26 @@ find_oid(const char *dotted, int shortname)
 	    return oids[mid].name;	/* found */
     }
     return NULL; /* not found */
+}
+
+/* convert an ASN.1 integer type to the equivalent sequence of hex digits */
+static char *
+_integer_to_hex_string(INTEGER_t *iptr)
+{
+    static const char *nybble = "0123456789ABCDEF";
+    const unsigned char *b;
+    char *allocated = NULL, *output;
+
+    if(!iptr || !iptr->buf || !iptr->size)
+	return NULL;
+
+    allocated = output = PyMem_Malloc(iptr->size * 2 + 1);
+    for (b = iptr->buf; b < iptr->buf + iptr->size; b++) {
+	*output++ = nybble[(((unsigned int) *b) >> 4) & 0xF];
+	*output++ = nybble[((unsigned int) *b) & 0xF];
+    }
+    *output++ = '\0';
+    return allocated;
 }
 
 static void
