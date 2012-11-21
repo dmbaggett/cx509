@@ -39,8 +39,55 @@ typedef struct {
 static int nOIDs = 0; /* set dynamically by find_oid */
 static oid_t OIDs[] = {
     /* see: http://www.alvestrand.no/cgi-bin/hta/oidwordsearch */
+    { "{ 1.2.840.10040.4.1 }", "id-dsa" },
+    { "{ 1.2.840.10040.4.3 }", "id-dsa-with-sha1" },
+    { "{ 1.2.840.10045.2.1 }", "id-ecPublicKey" }, /* Elliptic Curve public key */
+    { "{ 1.2.840.10045.4.1 }", "ecdsa-with-SHA1" }, /* ECDSA signature with SHA-1 */
+    { "{ 1.2.840.10046.2.1 }", "dhpublicnumber" }, /* Diffie-Hellman public key */
+    { "{ 1.2.840.113549.1.1.1 }", "rsaEncryption" }, /* RSA public keys */
+    { "{ 1.2.840.113549.1.1.10 }", "RSASSA-PSS" },
+    { "{ 1.2.840.113549.1.1.11 }", "sha256WithRSAEncryption" },
+    { "{ 1.2.840.113549.1.1.12 }", "sha384WithRSAEncryption" },
+    { "{ 1.2.840.113549.1.1.13 }", "sha512WithRSAEncryption" },
+    { "{ 1.2.840.113549.1.1.2 }", "md2WithRSAEncryption" }, /* RSA signature generated with MD2 hash */
+    { "{ 1.2.840.113549.1.1.3 }", "md4WithRSAEncryption" },
+    { "{ 1.2.840.113549.1.1.4 }", "md5WithRSAEncryption" }, /* RSA signature generated with MD5 hash */
+    { "{ 1.2.840.113549.1.1.5 }", "sha1WithRSAEncryption" }, /* RSA signature generated with SHA1 hash */
+    { "{ 1.2.840.113549.1.1.6 }", "rsaOAEPEncryptionSET" },
+    { "{ 1.2.840.113549.1.1.7 }", "id-RSAES-OAEP" },
     { "{ 1.2.840.113549.1.9 }", "email" },
     { "{ 1.2.840.113549.1.9.1 }", "emailAddress" },
+    { "{ 1.2.840.113549.2.2 }", "md2" }, /* MD2 hash function */
+    { "{ 1.2.840.113549.2.26 }", "id-sha1" },
+    { "{ 1.2.840.113549.2.5 }", "md5" }, /* MD5 hash function */
+    { "{ 1.3.14.3.2.10 }", "desMAC" },
+    { "{ 1.3.14.3.2.11 }", "rsaSignature" },
+    { "{ 1.3.14.3.2.12 }", "dsa" },
+    { "{ 1.3.14.3.2.13 }", "dsaWithSHA" },
+    { "{ 1.3.14.3.2.14 }", "mdc2WithRSASignature" },
+    { "{ 1.3.14.3.2.15 }", "shaWithRSASignature" },
+    { "{ 1.3.14.3.2.16 }", "dhWithCommonModulus" },
+    { "{ 1.3.14.3.2.17 }", "desEDE" },
+    { "{ 1.3.14.3.2.18 }", "sha" },
+    { "{ 1.3.14.3.2.19 }", "mdc-2" },
+    { "{ 1.3.14.3.2.2 }", "md4WithRSA" },
+    { "{ 1.3.14.3.2.20 }", "dsaCommon" },
+    { "{ 1.3.14.3.2.21 }", "dsaCommonWithSHA" },
+    { "{ 1.3.14.3.2.22 }", "rsaKeyTransport" },
+    { "{ 1.3.14.3.2.23 }", "keyed-hash-seal" },
+    { "{ 1.3.14.3.2.24 }", "md2WithRSASignature" },
+    { "{ 1.3.14.3.2.25 }", "md5WithRSASignature" },
+    { "{ 1.3.14.3.2.26 }", "sha-1" },
+    { "{ 1.3.14.3.2.27 }", "dsa-sha1" },
+    { "{ 1.3.14.3.2.28 }", "dsa-sha1-common-parameters" },
+    { "{ 1.3.14.3.2.29 }", "sha1-with-RSA-signature" },
+    { "{ 1.3.14.3.2.3 }", "md5WithRSA" },
+    { "{ 1.3.14.3.2.4 }", "md4WithRSAEncryption" },
+    { "{ 1.3.14.3.2.6 }", "desECB" },
+    { "{ 1.3.14.3.2.7 }", "desCBC" },
+    { "{ 1.3.14.3.2.8 }", "desOFB" },
+    { "{ 1.3.14.3.2.9 }", "desCFB" },
+    { "{ 2.16.840.1.101.2.1.1.22 }", "id-keyExchangeAlgorithm" }, /* KEA key */
     { "{ 2.16.840.1.113730.1.13 }", "comment" },
     { "{ 2.5.29.1 }", "oldAuthorityKeyIdentifier" },
     { "{ 2.5.29.14 }", "subjectKeyIdentifier" },
@@ -382,7 +429,7 @@ cx509_get_subject(cx509 *self)
 
 static void
 _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence)
-{	
+{
     AttributeTypeAndValue_t *atv;
     char *atype = NULL;
     int i, j;
@@ -573,7 +620,7 @@ cx509_extensions(cx509 *self)
     asn_dec_rval_t rval;
     char *oid;
     int i, j;
-
+    
     /* extension types we know about: */
     BasicConstraints_t *basicConstraints = NULL;
     long basicConstraints_pathlen = 0;
@@ -733,11 +780,80 @@ cx509_extensions(cx509 *self)
     return L;
 }
 
+static PyObject *
+cx509_get_public_key(cx509 *self)
+{
+    PyObject *dict, *tmp;
+    const char *algorithm_oid;
+    const char *algorithm_name;
+    SubjectPublicKeyInfo_t *spki;
+
+    dict = PyDict_New();
+    spki = &self->certificate->tbsCertificate.subjectPublicKeyInfo;
+
+    algorithm_oid = _oid_to_string(&spki->algorithm.algorithm);
+    /* TBD: make sure spki->algorithm.parameters is empty, otherwise fail */
+    tmp = PyString_FromString((void *) algorithm_oid);
+    PyDict_SetItemString(dict, "algorithm_oid", tmp);
+    Py_DECREF(tmp);
+
+    algorithm_name = find_oid(algorithm_oid, /*shortname:*/ 0);
+    tmp = PyString_FromString((void *) algorithm_name);
+    PyDict_SetItemString(dict, "algorithm", tmp);
+    Py_DECREF(tmp);
+
+    tmp = PyString_FromStringAndSize((void *) spki->subjectPublicKey.buf, spki->subjectPublicKey.size);
+    PyDict_SetItemString(dict, "key", tmp);
+    Py_DECREF(tmp);
+
+    tmp = PyInt_FromLong(8 * spki->subjectPublicKey.size - spki->subjectPublicKey.bits_unused);
+    PyDict_SetItemString(dict, "keylen", tmp);
+    Py_DECREF(tmp);
+
+    /* if we know about this algorithm, decode the key */
+    if (!strcmp(algorithm_oid, "{ 1.2.840.113549.1.1.1 }")) {
+	/* RSA */
+	
+    }
+    
+    return dict;
+}
+
+static PyObject *
+cx509_get_signature_algorithm(cx509 *self)
+{
+    char *dotted;
+    const char *algorithm_name;
+
+    dotted = _oid_to_string(&self->certificate->signatureAlgorithm.algorithm);
+    algorithm_name = find_oid(dotted, /*shortname:*/ 0);
+    if (!algorithm_name) {
+	Py_INCREF(Py_None);
+	return Py_None;
+    }
+    return PyString_FromString(algorithm_name);
+}
+
+static PyObject *
+cx509_get_signature(cx509 *self)
+{
+    return NULL;
+}
+
+static PyObject *
+cx509_get_digest_info(cx509 *self)
+{
+    return NULL;
+}
+
 static char *
 _oid_to_string(OBJECT_IDENTIFIER_t *oid)
 {
     size_t count = 0;
     void *allocated, *output;
+
+    if (!oid)
+	return NULL;
 
     if (OBJECT_IDENTIFIER_print(NULL, (const void *) oid, 0, _print2count, (void *) &count))
 	return NULL;
@@ -817,6 +933,9 @@ static PyMethodDef cx509_methods[] = {
     {"get_validity", (PyCFunction) cx509_get_validity, METH_NOARGS, "Return (earliest, latest) valid date/time." },
     {"get_issuer", (PyCFunction) cx509_get_issuer, METH_NOARGS, "Return a dict with information about the certificate issuer." },
     {"get_subject", (PyCFunction) cx509_get_subject, METH_NOARGS, "Return a dict with information about the certificate subject." },
+    {"get_public_key", (PyCFunction) cx509_get_public_key, METH_NOARGS, "Return a dict with information about the public key." },
+    {"get_signature_algorithm", (PyCFunction) cx509_get_signature_algorithm, METH_NOARGS, "Return the name of the signature algorithm." },
+    {"get_signature", (PyCFunction) cx509_get_signature, METH_NOARGS, "Return the raw bytes of the signature." },
     {"extensions", (PyCFunction) cx509_extensions, METH_NOARGS, "Return list of extensions." },
 
     {NULL}  /* Sentinel */

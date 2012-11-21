@@ -12,8 +12,10 @@ else:
 
 # Add prebuilt X.509 C sources to sources list
 sources = glob("asn1c/examples/sample.source.PKIX1/*.c")
+sources.extend(glob("asn1c/examples/sample.source.PKCS1/*.c"))
 extra_flags.extend([
     '-Iasn1c/examples/sample.source.PKIX1',
+    '-Iasn1c/examples/sample.source.PKCS1',
     '-DPDU=Certificate'
 ])
 sources.append('cx509.c')
