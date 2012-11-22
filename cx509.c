@@ -957,19 +957,20 @@ cx509_get_signature_value(cx509 *self)
     return PyString_FromStringAndSize(signature, len);
 }
 
+/*
+ * This is pretty hacky. We can't easily get the raw bytes corresponding to the TBSCertificate from
+ * the parser, so we just encode as DER again from scratch.
+ */
 static PyObject *
 cx509_get_tbs_certificate_data(cx509 *self)
 {
-    TBSCertificate_t *tbsCertificate;
     asn_enc_rval_t er;  /* Encoder return value */
     size_t count = 0;
     void *allocated, *output;
     PyObject *s;
-    
-    tbsCertificate = &self->certificate->tbsCertificate;
 
     /* count number of bytes */
-    er = der_encode(&asn_DEF_TBSCertificate, tbsCertificate, NULL, NULL);
+    er = der_encode(&asn_DEF_TBSCertificate, &self->certificate->tbsCertificate, NULL, NULL);
     if (er.encoded == -1) {
 	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER (1)");
 	return NULL; /* Failed to encode the data. */
@@ -978,7 +979,6 @@ cx509_get_tbs_certificate_data(cx509 *self)
         count = er.encoded; /* Return the number of bytes */
 
     /* allocate and encode to allocated buffer */
-    printf("count = %s\n", count);
     allocated = output = PyMem_Malloc(count);
     er = der_encode(&asn_DEF_TBSCertificate, tbsCertificate, _print2buffer, (void *) &output);
     if (er.encoded == -1) {
