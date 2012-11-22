@@ -24,11 +24,14 @@
 #include "SubjectAltName.h"
 
 /* PKCS1 types we need */
+#include "DigestInfo.h"
 #include "RSAPublicKey.h"
 
 /* other types we need */
 #include "DirectoryString.h"
 #include "GeneralName.h"
+#include "VisibleString.h"
+#include "NumericString.h"
 
 typedef struct {
     PyObject_HEAD
@@ -460,6 +463,8 @@ _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name)
     PyObject *value;
     DirectoryString_t *ds = NULL;
     IA5String_t *ia5 = NULL;
+    VisibleString_t *vs = NULL;
+    NumericString_t *ns = NULL;
     char encoding[16];	
     char *encoding_key_name;
 
@@ -483,6 +488,26 @@ _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name)
     else if (!ANY_to_type(any, &asn_DEF_IA5String, (void *) &ia5) && ia5) {
 	strcpy(encoding, "ia5");
 	value = PyString_FromStringAndSize((void *) ia5->buf, (size_t) ia5->size);
+	if (value)
+	    ADD;
+    }
+    else if (!ANY_to_type(any, &asn_DEF_VisibleString, (void *) &vs) && vs) {
+	/*
+	 * The character string with the alphabet which is more or less a subset of ASCII between
+	 * the space and the ''~'' symbol (tilde).
+	 */
+	strcpy(encoding, "ascii");
+	value = PyString_FromStringAndSize((void *) vs->buf, (size_t) vs->size);
+	if (value)
+	    ADD;
+    }
+    else if (!ANY_to_type(any, &asn_DEF_NumericString, (void *) &ns) && ns) {
+	/* 
+	 * This type represents the character string with the alphabet consisting of numbers (''0''
+	 * to ''9'') and a space.
+	 */
+	strcpy(encoding, "ascii");
+	value = PyString_FromStringAndSize((void *) ns->buf, (size_t) ns->size);
 	if (value)
 	    ADD;
     }
@@ -670,8 +695,7 @@ cx509_extensions(cx509 *self)
 		    PyDict_SetItemString(dict, "name", tmp);
 		    Py_DECREF(tmp);
 		    if (ext->extnValue.size) {
-			rval = ber_decode(0, &asn_DEF_KeyUsage, (void **) &keyUsage,
-					  (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
+			rval = ber_decode(0, &asn_DEF_KeyUsage, (void **) &keyUsage, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
 			if (rval.code == RC_OK && keyUsage) {
 			    keyUsageFlags = PyFrozenSet_New(NULL);
 			    if (keyUsage->size > 0) {
@@ -846,8 +870,58 @@ cx509_get_public_key(cx509 *self)
 		Py_DECREF(tmp);
 	    }
 	}
+	else {
+	    /* Free partially decoded RSAPublicKey */
+	    asn_DEF_RSAPublicKey.free_struct(&asn_DEF_RSAPublicKey, rsapk, 0);
+	}
     }
     
+    return dict;
+}
+
+static PyObject *
+cx509_parse_digest_info(cx509 *self, PyObject *args, PyObject *kw)
+{
+    static char *kwlist[] = { "data", NULL };
+    PyObject *dict, *tmp;
+    const char *data = NULL;
+    Py_ssize_t len = 0;
+    DigestInfo_t *di = NULL;
+    asn_dec_rval_t rval;
+    char *dotted;
+    const char *algorithm_name;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "s#", kwlist, &data, &len))
+	return NULL;
+
+    rval = ber_decode(0, &asn_DEF_DigestInfo, (void **) &di, (const void *) data, (size_t) len);
+    if (rval.code == RC_OK) {
+	dict = PyDict_New();
+	dotted = _oid_to_string(&di->digestAlgorithm.algorithm);
+	if (dotted) {
+	    tmp = PyString_FromString((void *) dotted);
+	    PyDict_SetItemString(dict, "algorithm_oid", tmp);
+	    Py_DECREF(tmp);
+
+	    algorithm_name = find_oid(dotted, /*shortname:*/ 0);
+	    if (algorithm_name) {
+		tmp = PyString_FromString((void *) algorithm_name);
+		PyDict_SetItemString(dict, "algorithm", tmp);
+		Py_DECREF(tmp);
+	    }
+	}
+	if (di->digest.buf && di->digest.size) {
+	    tmp = PyString_FromStringAndSize((void *) di->digest.buf, (size_t) di->digest.size);
+	    PyDict_SetItemString(dict, "digest", tmp);
+	    Py_DECREF(tmp);
+	}
+    }
+    else {
+	/* Free partially decoded DigestInfo */
+	asn_DEF_DigestInfo.free_struct(&asn_DEF_DigestInfo, di, 0);
+	PyErr_Format(PyExc_ValueError, "failed to parse DigestInfo");
+	return NULL;
+    }
     return dict;
 }
 
@@ -867,15 +941,55 @@ cx509_get_signature_algorithm(cx509 *self)
 }
 
 static PyObject *
-cx509_get_signature(cx509 *self)
+cx509_get_signature_value(cx509 *self)
 {
-    return NULL;
+    const char *signature;
+    size_t len;
+
+    signature = self->certificate->signature.buf;
+    if (!signature)
+	return NULL;
+
+    len = self->certificate->signature.size;
+    if (!len)
+	return NULL;
+
+    return PyString_FromStringAndSize(signature, len);
 }
 
 static PyObject *
-cx509_get_digest_info(cx509 *self)
+cx509_get_tbs_certificate_data(cx509 *self)
 {
-    return NULL;
+    TBSCertificate_t *tbsCertificate;
+    asn_enc_rval_t er;  /* Encoder return value */
+    size_t count = 0;
+    void *allocated, *output;
+    PyObject *s;
+    
+    tbsCertificate = &self->certificate->tbsCertificate;
+
+    /* count number of bytes */
+    er = der_encode(&asn_DEF_TBSCertificate, tbsCertificate, NULL, NULL);
+    if (er.encoded == -1) {
+	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER (1)");
+	return NULL; /* Failed to encode the data. */
+    }
+    else
+        count = er.encoded; /* Return the number of bytes */
+
+    /* allocate and encode to allocated buffer */
+    printf("count = %s\n", count);
+    allocated = output = PyMem_Malloc(count);
+    er = der_encode(&asn_DEF_TBSCertificate, tbsCertificate, _print2buffer, (void *) &output);
+    if (er.encoded == -1) {
+	PyMem_Free(allocated);
+	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER (2)");
+	return NULL; /* Failed to encode the data. */
+    }
+
+    s = PyString_FromStringAndSize(allocated, count);
+    PyMem_Free(allocated);
+    return s;
 }
 
 static char *
@@ -987,7 +1101,9 @@ static PyMethodDef cx509_methods[] = {
     {"get_subject", (PyCFunction) cx509_get_subject, METH_NOARGS, "Return a dict with information about the certificate subject." },
     {"get_public_key", (PyCFunction) cx509_get_public_key, METH_NOARGS, "Return a dict with information about the public key." },
     {"get_signature_algorithm", (PyCFunction) cx509_get_signature_algorithm, METH_NOARGS, "Return the name of the signature algorithm." },
-    {"get_signature", (PyCFunction) cx509_get_signature, METH_NOARGS, "Return the raw bytes of the signature." },
+    {"get_signature_value", (PyCFunction) cx509_get_signature_value, METH_NOARGS, "Return the raw, encrypted signature data as a string." },
+    {"get_tbs_certificate_data", (PyCFunction) cx509_get_tbs_certificate_data, METH_NOARGS, "Return the raw ASN.1 data for the tbsCertificate component of the certificate." },
+    {"parse_digest_info", (PyCFunction) cx509_parse_digest_info, METH_VARARGS|METH_KEYWORDS, "Parse the decrypted signature value and return a dict for the resulting DisgestInfo." },
     {"extensions", (PyCFunction) cx509_extensions, METH_NOARGS, "Return list of extensions." },
 
     {NULL}  /* Sentinel */
