@@ -96,6 +96,10 @@ static oid_t OIDs[] = {
     { "{ 1.3.14.3.2.7 }", "desCBC" },
     { "{ 1.3.14.3.2.8 }", "desOFB" },
     { "{ 1.3.14.3.2.9 }", "desCFB" },
+    { "{ 1.3.6.1.5.5.7.1.1 }", "id-pe-authorityInfoAccess" }, /* private certificate extension */
+    { "{ 1.3.6.1.5.5.7.1.12 }", "id-pe-logotype" }, /* private certificate extension */
+    { "{ 1.3.6.1.5.5.7.1.2 }", "id-pe-biometricInfo" }, /* private certificate extension */
+    { "{ 1.3.6.1.5.5.7.1.3 }", "id-pe-qcStatements" }, /* private certificate extension */
     { "{ 2.16.840.1.101.2.1.1.22 }", "id-keyExchangeAlgorithm" }, /* KEA key */
     { "{ 2.16.840.1.113730.1.13 }", "comment" },
     { "{ 2.5.29.1 }", "oldAuthorityKeyIdentifier" },
@@ -103,7 +107,7 @@ static oid_t OIDs[] = {
     { "{ 2.5.29.15 }", "keyUsage" },
     { "{ 2.5.29.16 }", "privateKeyUsagePeriod" },
     { "{ 2.5.29.17 }", "subjectAltName" },
-    { "{ 2.5.29.18 }", "issuerAlternativeName" },
+    { "{ 2.5.29.18 }", "issuerAltName" },
     { "{ 2.5.29.19 }", "basicConstraints" },
     { "{ 2.5.29.2 }", "oldPrimaryKeyAttributes" },
     { "{ 2.5.29.20 }", "cRLNumber" },
@@ -651,6 +655,7 @@ cx509_extensions(cx509 *self)
     PyObject *tmp;
     asn_dec_rval_t rval;
     char *oid;
+    const char *extension_name;
     int i, j;
     
     /* extension types we know about: */
@@ -683,120 +688,122 @@ cx509_extensions(cx509 *self)
 
 	    /* parse known extensions */
 	    if (oid) {
-		/* 
-		 * TBD: these might be necessary to validate some certs:
-		 *
-		 *  issuerAltName { 2.5.29.18 }
-		 *  nameConstraints { 2.5.29.30 }
-		 *  CRLDistributionPoints { 2.5.29.31 }
-		 */
-		if (!strcmp(oid, "{ 2.5.29.15 }")) {
-		    tmp = PyString_FromString("keyUsage");
+		extension_name = find_oid(oid, /*shortname:*/ 0);
+		if (extension_name) {
+		    tmp = PyString_FromString(extension_name);
 		    PyDict_SetItemString(dict, "name", tmp);
 		    Py_DECREF(tmp);
-		    if (ext->extnValue.size) {
-			rval = ber_decode(0, &asn_DEF_KeyUsage, (void **) &keyUsage, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
-			if (rval.code == RC_OK && keyUsage) {
-			    keyUsageFlags = PyFrozenSet_New(NULL);
-			    if (keyUsage->size > 0) {
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_digitalSignature))) {
-				    tmp = PyString_FromString("digitalSignature");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_nonRepudiation))) {
-				    tmp = PyString_FromString("nonRepudiation");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_keyEncipherment))) {
-				    tmp = PyString_FromString("keyEncipherment");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_dataEncipherment))) {
-				    tmp = PyString_FromString("dataEncipherment");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_keyAgreement))) {
-				    tmp = PyString_FromString("keyAgreement");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_keyCertSign))) {
-				    tmp = PyString_FromString("keyCertSign");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_cRLSign))) {
-				    tmp = PyString_FromString("cRLSign");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-				if (keyUsage->buf[0] & (1 << (7 - KeyUsage_encipherOnly))) {
-				    tmp = PyString_FromString("encipherOnly");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-			    }
-			    if (keyUsage->size > 1) {
-				if (keyUsage->buf[1] & (1 << (7 - (KeyUsage_digitalSignature - 8)))) {
-				    tmp = PyString_FromString("decipherOnly");
-				    PySet_Add(keyUsageFlags, tmp);
-				    Py_DECREF(tmp);
-				}
-			    }
-			    PyDict_SetItemString(dict, "keyUsage", keyUsageFlags);
-			}
-		    }
-		}
-		else if (!strcmp(oid, "{ 2.5.29.17 }")) {
-		    /* NOTE: we only check for the dNSName type here; we just ignore the others */
-		    tmp = PyString_FromString("subjectAltName");
-		    PyDict_SetItemString(dict, "name", tmp);
-		    Py_DECREF(tmp);
-		    if (ext->extnValue.size) {
-			rval = ber_decode(0, &asn_DEF_SubjectAltName, (void **) &subjectAltName,
-					  (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
-			if (rval.code == RC_OK && subjectAltName) {
-			    dNSNames = PyFrozenSet_New(NULL);
-			    for (j = 0; j < subjectAltName->list.count; j++) {
-				gn = subjectAltName->list.array[j];
-				if (gn && gn->present == GeneralName_PR_dNSName && gn->choice.dNSName.buf) {
-				    dNSName = PyString_FromStringAndSize((void *) gn->choice.dNSName.buf, (size_t) gn->choice.dNSName.size);
-				    PySet_Add(dNSNames, dNSName); /* does not steal reference */
-				    Py_DECREF(dNSName);
-				}
-			    }
-			    if (PySet_Size(dNSNames))
-				PyDict_SetItemString(dict, "dNSName", dNSNames);
-			    else
-				Py_DECREF(dNSNames);
-			}
-		    }
-		}
-		else if (!strcmp(oid, "{ 2.5.29.19 }")) {
-		    tmp = PyString_FromString("basicConstraints");
-		    PyDict_SetItemString(dict, "name", tmp);
-		    Py_DECREF(tmp);
-		    if (ext->extnValue.size) {
-			rval = ber_decode(0, &asn_DEF_BasicConstraints, (void **) &basicConstraints,
-					  (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
-			if (rval.code == RC_OK && basicConstraints) {
-			    PyDict_SetItemString(dict, "cA", (basicConstraints->cA && *basicConstraints->cA) ? Py_True : Py_False); /* does not steal reference */
-			    if (!asn_INTEGER2long(basicConstraints->pathLenConstraint, &basicConstraints_pathlen)) {
-				tmp = PyInt_FromLong(basicConstraints_pathlen);
-				PyDict_SetItemString(dict, "pathLenConstraint", tmp);
-				Py_DECREF(tmp);
-			    }
-			}
-		    }
 		}
 		else {
 		    tmp = PyString_FromString(oid);
 		    PyDict_SetItemString(dict, "name", tmp);
 		    Py_DECREF(tmp);
+		}
+
+		if (extension_name) {
+		    if (!strcmp(extension_name, "keyUsage")) {
+			if (ext->extnValue.size) {
+			    rval = ber_decode(0, &asn_DEF_KeyUsage, (void **) &keyUsage, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
+			    if (rval.code == RC_OK && keyUsage) {
+				keyUsageFlags = PyFrozenSet_New(NULL);
+				if (keyUsage->size > 0) {
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_digitalSignature))) {
+					tmp = PyString_FromString("digitalSignature");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_nonRepudiation))) {
+					tmp = PyString_FromString("nonRepudiation");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_keyEncipherment))) {
+					tmp = PyString_FromString("keyEncipherment");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_dataEncipherment))) {
+					tmp = PyString_FromString("dataEncipherment");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_keyAgreement))) {
+					tmp = PyString_FromString("keyAgreement");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_keyCertSign))) {
+					tmp = PyString_FromString("keyCertSign");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_cRLSign))) {
+					tmp = PyString_FromString("cRLSign");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				    if (keyUsage->buf[0] & (1 << (7 - KeyUsage_encipherOnly))) {
+					tmp = PyString_FromString("encipherOnly");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				}
+				if (keyUsage->size > 1) {
+				    if (keyUsage->buf[1] & (1 << (7 - (KeyUsage_digitalSignature - 8)))) {
+					tmp = PyString_FromString("decipherOnly");
+					PySet_Add(keyUsageFlags, tmp);
+					Py_DECREF(tmp);
+				    }
+				}
+				PyDict_SetItemString(dict, "keyUsage", keyUsageFlags);
+			    }
+			}
+		    }
+		    else if (!strcmp(extension_name, "subjectAltName")) {
+			/* NOTE: we only check for the dNSName type here; we just ignore the others */
+			if (ext->extnValue.size) {
+			    rval = ber_decode(0, &asn_DEF_SubjectAltName, (void **) &subjectAltName, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
+			    if (rval.code == RC_OK && subjectAltName) {
+				dNSNames = PyFrozenSet_New(NULL);
+				for (j = 0; j < subjectAltName->list.count; j++) {
+				    gn = subjectAltName->list.array[j];
+				    if (gn && gn->present == GeneralName_PR_dNSName && gn->choice.dNSName.buf) {
+					dNSName = PyString_FromStringAndSize((void *) gn->choice.dNSName.buf, (size_t) gn->choice.dNSName.size);
+					PySet_Add(dNSNames, dNSName); /* does not steal reference */
+					Py_DECREF(dNSName);
+				    }
+				}
+				if (PySet_Size(dNSNames))
+				    PyDict_SetItemString(dict, "dNSName", dNSNames);
+				else
+				    Py_DECREF(dNSNames);
+			    }
+			}
+		    }
+		    else if (!strcmp(extension_name, "issuerAltName")) {
+			/* TBD */
+		    }
+		    else if (!strcmp(extension_name, "basicConstraints")) {
+			if (ext->extnValue.size) {
+			    rval = ber_decode(0, &asn_DEF_BasicConstraints, (void **) &basicConstraints, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
+			    if (rval.code == RC_OK && basicConstraints) {
+				PyDict_SetItemString(dict, "cA", (basicConstraints->cA && *basicConstraints->cA) ? Py_True : Py_False); /* does not steal reference */
+				if (!asn_INTEGER2long(basicConstraints->pathLenConstraint, &basicConstraints_pathlen)) {
+				    tmp = PyInt_FromLong(basicConstraints_pathlen);
+				    PyDict_SetItemString(dict, "pathLenConstraint", tmp);
+				    Py_DECREF(tmp);
+				}
+			    }
+			    else
+				printf("failed to parse basicConstraints\n");
+			}
+		    }
+		    else if (!strcmp(extension_name, "nameConstraints")) {
+			/* TBD */
+		    }
+		    else if (!strcmp(extension_name, "cRLDistributionPoints")) {
+			/* TBD */
+		    }
 		}
 	    }
 
@@ -959,7 +966,8 @@ cx509_get_signature_value(cx509 *self)
 
 /*
  * This is pretty hacky. We can't easily get the raw bytes corresponding to the TBSCertificate from
- * the parser, so we just encode as DER again from scratch.
+ * the parser, so we just encode as DER again from scratch. It seems like this might be brittle, but
+ * so far I haven't seen any problems. --dmb
  */
 static PyObject *
 cx509_get_tbs_certificate_data(cx509 *self)
@@ -972,7 +980,7 @@ cx509_get_tbs_certificate_data(cx509 *self)
     /* count number of bytes */
     er = der_encode(&asn_DEF_TBSCertificate, &self->certificate->tbsCertificate, NULL, NULL);
     if (er.encoded == -1) {
-	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER (1)");
+	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER");
 	return NULL; /* Failed to encode the data. */
     }
     else
@@ -980,10 +988,10 @@ cx509_get_tbs_certificate_data(cx509 *self)
 
     /* allocate and encode to allocated buffer */
     allocated = output = PyMem_Malloc(count);
-    er = der_encode(&asn_DEF_TBSCertificate, tbsCertificate, _print2buffer, (void *) &output);
+    er = der_encode(&asn_DEF_TBSCertificate, &self->certificate->tbsCertificate, _print2buffer, (void *) &output);
     if (er.encoded == -1) {
 	PyMem_Free(allocated);
-	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER (2)");
+	PyErr_Format(PyExc_ValueError, "failed to encode TBSCertificate as DER (print)");
 	return NULL; /* Failed to encode the data. */
     }
 
