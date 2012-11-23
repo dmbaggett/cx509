@@ -21,7 +21,7 @@
 /* extension types we know about: */
 #include "BasicConstraints.h"
 #include "KeyUsage.h"
-#include "SubjectAltName.h"
+#include "GeneralNames.h" /* for subjectAltName and issuerAltName */
 
 /* PKCS1 types we need */
 #include "DigestInfo.h"
@@ -101,7 +101,8 @@ static oid_t OIDs[] = {
     { "{ 1.3.6.1.5.5.7.1.2 }", "id-pe-biometricInfo" }, /* private certificate extension */
     { "{ 1.3.6.1.5.5.7.1.3 }", "id-pe-qcStatements" }, /* private certificate extension */
     { "{ 2.16.840.1.101.2.1.1.22 }", "id-keyExchangeAlgorithm" }, /* KEA key */
-    { "{ 2.16.840.1.113730.1.13 }", "comment" },
+    { "{ 2.16.840.1.113730.1.1 }", "certificateType" }, /* Netscape extension */
+    { "{ 2.16.840.1.113730.1.13 }", "comment" }, /* Netscape extension */
     { "{ 2.5.29.1 }", "oldAuthorityKeyIdentifier" },
     { "{ 2.5.29.14 }", "subjectKeyIdentifier" },
     { "{ 2.5.29.15 }", "keyUsage" },
@@ -665,7 +666,7 @@ cx509_extensions(cx509 *self)
     KeyUsage_t *keyUsage = NULL;
     PyObject *keyUsageFlags = NULL;
 
-    SubjectAltName_t *subjectAltName = NULL;
+    GeneralNames_t *altName = NULL;
     GeneralName_t *gn = NULL;
     PyObject *dNSName, *dNSNames;
 
@@ -759,14 +760,14 @@ cx509_extensions(cx509 *self)
 			    }
 			}
 		    }
-		    else if (!strcmp(extension_name, "subjectAltName")) {
+		    else if (!strcmp(extension_name, "subjectAltName") || !strcmp(extension_name, "issuerAltName")) {
 			/* NOTE: we only check for the dNSName type here; we just ignore the others */
 			if (ext->extnValue.size) {
-			    rval = ber_decode(0, &asn_DEF_SubjectAltName, (void **) &subjectAltName, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
-			    if (rval.code == RC_OK && subjectAltName) {
+			    rval = ber_decode(0, &asn_DEF_GeneralNames, (void **) &altName, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
+			    if (rval.code == RC_OK && altName) {
 				dNSNames = PyFrozenSet_New(NULL);
-				for (j = 0; j < subjectAltName->list.count; j++) {
-				    gn = subjectAltName->list.array[j];
+				for (j = 0; j < altName->list.count; j++) {
+				    gn = altName->list.array[j];
 				    if (gn && gn->present == GeneralName_PR_dNSName && gn->choice.dNSName.buf) {
 					dNSName = PyString_FromStringAndSize((void *) gn->choice.dNSName.buf, (size_t) gn->choice.dNSName.size);
 					PySet_Add(dNSNames, dNSName); /* does not steal reference */
