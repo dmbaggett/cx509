@@ -933,18 +933,31 @@ cx509_parse_digest_info(cx509 *self, PyObject *args, PyObject *kw)
 }
 
 static PyObject *
-cx509_get_signature_algorithm(cx509 *self)
+cx509_get_signature_algorithm(cx509 *self, PyObject *args, PyObject *kw)
 {
+    static char *kwlist[] = { "as_oid", NULL };
+    PyObject *as_oid = NULL;
     char *dotted;
     const char *algorithm_name;
+    PyObject *retval;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "O", kwlist, &as_oid))
+	return NULL;
 
     dotted = _oid_to_string(&self->certificate->signatureAlgorithm.algorithm);
-    algorithm_name = find_oid(dotted, /*shortname:*/ 0);
-    if (!algorithm_name) {
-	Py_INCREF(Py_None);
-	return Py_None;
+    if (as_oid == Py_True) {
+       retval = PyString_FromString(dotted);
     }
-    return PyString_FromString(algorithm_name);
+    else {
+	algorithm_name = find_oid(dotted, /*shortname:*/ 0);
+	if (!algorithm_name) {
+	    Py_INCREF(Py_None);
+	    return Py_None;
+	}
+	retval = PyString_FromString(algorithm_name);
+    }
+    PyMem_Free(dotted);
+    return retval;
 }
 
 static PyObject *
@@ -1108,7 +1121,7 @@ static PyMethodDef cx509_methods[] = {
     {"get_issuer", (PyCFunction) cx509_get_issuer, METH_NOARGS, "Return a dict with information about the certificate issuer." },
     {"get_subject", (PyCFunction) cx509_get_subject, METH_NOARGS, "Return a dict with information about the certificate subject." },
     {"get_public_key", (PyCFunction) cx509_get_public_key, METH_NOARGS, "Return a dict with information about the public key." },
-    {"get_signature_algorithm", (PyCFunction) cx509_get_signature_algorithm, METH_NOARGS, "Return the name of the signature algorithm." },
+    {"get_signature_algorithm", (PyCFunction) cx509_get_signature_algorithm, METH_VARARGS|METH_KEYWORDS, "Return the name of the signature algorithm." },
     {"get_signature_value", (PyCFunction) cx509_get_signature_value, METH_NOARGS, "Return the raw, encrypted signature data as a string." },
     {"get_tbs_certificate_data", (PyCFunction) cx509_get_tbs_certificate_data, METH_NOARGS, "Return the raw ASN.1 data for the tbsCertificate component of the certificate." },
     {"parse_digest_info", (PyCFunction) cx509_parse_digest_info, METH_VARARGS|METH_KEYWORDS, "Parse the decrypted signature value and return a dict for the resulting DisgestInfo." },
