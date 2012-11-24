@@ -52,6 +52,10 @@ static oid_t OIDs[] = {
     { "{ 1.2.840.10040.4.3 }", "id-dsa-with-sha1" },
     { "{ 1.2.840.10045.2.1 }", "id-ecPublicKey" }, /* Elliptic Curve public key */
     { "{ 1.2.840.10045.4.1 }", "ecdsa-with-SHA1" }, /* ECDSA signature with SHA-1 */
+    { "{ 1.2.840.10045.4.3.1 }", "ecdsa-with-SHA224" }, /* http://tools.ietf.org/html/draft-ietf-pkix-sha2-dsa-ecdsa-10 */
+    { "{ 1.2.840.10045.4.3.2 }", "ecdsa-with-SHA256" },
+    { "{ 1.2.840.10045.4.3.3 }", "ecdsa-with-SHA384" },
+    { "{ 1.2.840.10045.4.3.4 }", "ecdsa-with-SHA512" },
     { "{ 1.2.840.10046.2.1 }", "dhpublicnumber" }, /* Diffie-Hellman public key */
     { "{ 1.2.840.113549.1.1.1 }", "rsaEncryption" }, /* RSA public keys */
     { "{ 1.2.840.113549.1.1.10 }", "RSASSA-PSS" },
@@ -359,13 +363,18 @@ cx509_get_version(cx509 *self)
     return PyInt_FromLong(v);
 }
 
-/* return valdity as (start_time, end_time); times are seconds since the epoch GMT */
+/* 
+ * Return validity as (start_time, end_time); times are ASN.1 GeneralizedTime stamps; either
+ * YYYYMMDDHHMMSS.fff or YYYYMMDDHHMMSS.fffZ. We add the initial two YY values in the UTCTime case.
+ */
 static PyObject *
 cx509_get_validity(cx509 *self)
 {
     TBSCertificate_t tbsCertificate;
+    unsigned char *buf;
+    size_t size;
+    int allocated;
     PyObject *tuple;
-    time_t time;
 
     if (!self->certificate) {
 	PyErr_Format(PyExc_ValueError, "empty certificate");
@@ -375,33 +384,39 @@ cx509_get_validity(cx509 *self)
     tuple = PyTuple_New(2);
     tbsCertificate = self->certificate->tbsCertificate;
 
-    /* not before */
-    if (tbsCertificate.validity.notBefore.present == Time_PR_utcTime) {
-	time = asn_UT2time(&tbsCertificate.validity.notBefore.choice.utcTime, NULL, /*as_gmt:*/ 1);
-	PyTuple_SetItem(tuple, 0, PyLong_FromUnsignedLongLong((PY_LONG_LONG) time)); /* steals the new reference */
-    }
-    else if (tbsCertificate.validity.notBefore.present == Time_PR_generalTime) {
-	time = asn_GT2time(&tbsCertificate.validity.notBefore.choice.generalTime, NULL, /*as_gmt:*/ 1);
-	PyTuple_SetItem(tuple, 0, PyLong_FromUnsignedLongLong((PY_LONG_LONG) time)); /* steals the new reference */
-    }
-    else {
-	Py_INCREF(Py_None);
-	PyTuple_SetItem(tuple, 0, Py_None);  /* steals the reference */
-    }
+#define GET_TIMESTAMP(N, field) do {							\
+    if (tbsCertificate.validity. field .present == Time_PR_utcTime) {			\
+	size = (size_t) tbsCertificate.validity. field .choice.utcTime.size + 2;	\
+	buf = PyMem_Malloc(size);							\
+	allocated = 1;									\
+	memcpy(&buf[2], tbsCertificate.validity . field .choice.utcTime.buf, size - 2); \
+	if (buf[2] > '5') {								\
+	    buf[0] = '1';								\
+	    buf[1] = '9';								\
+	}										\
+	else {										\
+	    buf[0] = '2';								\
+	    buf[1] = '0';								\
+	}										\
+    }											\
+    else if (tbsCertificate.validity. field .present == Time_PR_generalTime) {		\
+	buf = tbsCertificate.validity. field .choice.generalTime.buf;			\
+	size = (size_t) tbsCertificate.validity. field .choice.generalTime.size; 	\
+	allocated = 0;									\
+    }											\
+    else {										\
+	buf = NULL;									\
+	size = (size_t) 0;								\
+	allocated = 0;									\
+    }											\
+    if (buf) 										\
+        PyTuple_SetItem(tuple, N, PyString_FromStringAndSize((void *) buf, size)); 	\
+    if (allocated)									\
+	PyMem_Free(buf);								\
+} while (0)
 
-    /* not after */
-    if (tbsCertificate.validity.notAfter.present == Time_PR_utcTime) {
-	time = asn_UT2time(&tbsCertificate.validity.notAfter.choice.utcTime, NULL, /*as_gmt:*/ 1);
-	PyTuple_SetItem(tuple, 1, PyLong_FromUnsignedLongLong((PY_LONG_LONG) time)); /* steals the new reference */
-    }
-    else if (tbsCertificate.validity.notAfter.present == Time_PR_generalTime) {
-	time = asn_GT2time(&tbsCertificate.validity.notAfter.choice.generalTime, NULL, /*as_gmt:*/ 1);
-	PyTuple_SetItem(tuple, 1, PyLong_FromUnsignedLongLong((PY_LONG_LONG) time)); /* steals the new reference */
-    }
-    else {
-	Py_INCREF(Py_None);
-	PyTuple_SetItem(tuple, 1, Py_None);  /* steals the reference */
-    }
+    GET_TIMESTAMP(0, notBefore);
+    GET_TIMESTAMP(1, notAfter);
 
     return tuple;
 }
@@ -841,7 +856,7 @@ cx509_get_public_key(cx509 *self)
     Py_DECREF(tmp);
 
     algorithm_name = find_oid(algorithm_oid, /*shortname:*/ 0);
-    tmp = PyString_FromString((void *) algorithm_name);
+    tmp = PyString_FromString((void *) (algorithm_name ? algorithm_name : algorithm_oid));
     PyDict_SetItemString(dict, "algorithm", tmp);
     Py_DECREF(tmp);
 
@@ -912,11 +927,9 @@ cx509_parse_digest_info(cx509 *self, PyObject *args, PyObject *kw)
 	    Py_DECREF(tmp);
 
 	    algorithm_name = find_oid(dotted, /*shortname:*/ 0);
-	    if (algorithm_name) {
-		tmp = PyString_FromString((void *) algorithm_name);
-		PyDict_SetItemString(dict, "algorithm", tmp);
-		Py_DECREF(tmp);
-	    }
+	    tmp = PyString_FromString((void *) (algorithm_name ? algorithm_name : dotted));
+	    PyDict_SetItemString(dict, "algorithm", tmp);
+	    Py_DECREF(tmp);
 	}
 	if (di->digest.buf && di->digest.size) {
 	    tmp = PyString_FromStringAndSize((void *) di->digest.buf, (size_t) di->digest.size);
@@ -951,11 +964,7 @@ cx509_get_signature_algorithm(cx509 *self, PyObject *args, PyObject *kw)
     }
     else {
 	algorithm_name = find_oid(dotted, /*shortname:*/ 0);
-	if (!algorithm_name) {
-	    Py_INCREF(Py_None);
-	    return Py_None;
-	}
-	retval = PyString_FromString(algorithm_name);
+	retval = PyString_FromString(algorithm_name ? algorithm_name : dotted);
     }
     PyMem_Free(dotted);
     return retval;
@@ -964,7 +973,7 @@ cx509_get_signature_algorithm(cx509 *self, PyObject *args, PyObject *kw)
 static PyObject *
 cx509_get_signature_value(cx509 *self)
 {
-    const char *signature;
+    const unsigned char *signature;
     size_t len;
 
     signature = self->certificate->signature.buf;
@@ -975,7 +984,7 @@ cx509_get_signature_value(cx509 *self)
     if (!len)
 	return NULL;
 
-    return PyString_FromStringAndSize(signature, len);
+    return PyString_FromStringAndSize((void *) signature, len);
 }
 
 /*
