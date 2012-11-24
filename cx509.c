@@ -683,7 +683,7 @@ _directory_string_to_string(DirectoryString_t *ds, char encoding[16])
     return retval;
 }
 
-/* get the list of extensions; note that we only parse the ones we understand, but get get the critical flag for all */
+/* get the list of extensions; note that we only parse the ones we understand, but get the critical flag for all, as required */
 static PyObject *
 cx509_extensions(cx509 *self)
 {
@@ -820,9 +820,6 @@ cx509_extensions(cx509 *self)
 			    }
 			}
 		    }
-		    else if (!strcmp(extension_name, "issuerAltName")) {
-			/* TBD */
-		    }
 		    else if (!strcmp(extension_name, "basicConstraints")) {
 			if (ext->extnValue.size) {
 			    rval = ber_decode(0, &asn_DEF_BasicConstraints, (void **) &basicConstraints, (const void *) ext->extnValue.buf, (size_t) ext->extnValue.size);
@@ -893,7 +890,7 @@ cx509_get_public_key(cx509 *self)
     Py_DECREF(tmp);
 
     /* if we know about this algorithm, decode the key */
-    if (!strcmp(algorithm_oid, "{ 1.2.840.113549.1.1.1 }")) {
+    if (!strcmp(algorithm_oid, "{ 1.2.840.113549.1.1.1 }")) { /* rsaEncryption */
 	rval = ber_decode(0, &asn_DEF_RSAPublicKey, 
 			  (void **) &rsapk,
 			  (const void *) spki->subjectPublicKey.buf, 
