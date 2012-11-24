@@ -48,6 +48,8 @@ typedef struct {
 static int nOIDs = 0; /* set dynamically by find_oid */
 static oid_t OIDs[] = {
     /* see: http://www.alvestrand.no/cgi-bin/hta/oidwordsearch */
+    { "{ 0.9.2342.19200300.100.1.25 }", "domainComponent" },
+    { "{ 0.9.2342.19200300.100.1.1 }", "userId" },
     { "{ 1.2.840.10040.4.1 }", "id-dsa" },
     { "{ 1.2.840.10040.4.3 }", "id-dsa-with-sha1" },
     { "{ 1.2.840.10045.2.1 }", "id-ecPublicKey" }, /* Elliptic Curve public key */
@@ -215,8 +217,11 @@ static oid_t OIDs[] = {
     { NULL,  NULL }
 };
 
+/* short names aren't currently used; they are here for reference */
 static int nOIDs_short_names = 0; /* set dynamically by find_oid */
 static oid_t OID_short_names[] = {
+    { "{ 0.9.2342.19200300.100.1.25 }", "DC" },
+    { "{ 0.9.2342.19200300.100.1.1 }", "UID" },
     { "{ 2.5.4.10 }", "O" },
     { "{ 2.5.4.11 }", "OU" },
     { "{ 2.5.4.3 }", "CN" },
@@ -225,6 +230,7 @@ static oid_t OID_short_names[] = {
     { "{ 2.5.4.6 }", "CN" },
     { "{ 2.5.4.7 }", "L" },
     { "{ 2.5.4.8 }", "ST" },
+    { "{ 2.5.4.9 }", "STREET" },
 
     /* sentinel */
     { NULL,  NULL }
@@ -236,7 +242,7 @@ static PyObject *cx509_parse(cx509 *self, PyObject *args, PyObject *kw);
 static char *_oid_to_string(OBJECT_IDENTIFIER_t *oid);
 static char *_integer_to_hex_string(INTEGER_t *I);
 static void _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence);
-static void _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name);;
+static void _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name, const char *dotted);
 static PyObject *_directory_string_to_string(DirectoryString_t *ds, char encoding[16]);
 static const char *find_oid(const char *dotted, int shortname);
 
@@ -477,7 +483,7 @@ _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence)
 	    atv = rdnSequence->list.array[i]->list.array[j];
 	    atype = _oid_to_string(&atv->type);
 	    name = find_oid(atype, /*shortname:*/ 0);
-	    _add_directory_string_to_dict(&atv->value, dict, name ? name : atype);
+	    _add_directory_string_to_dict(&atv->value, dict, name ? name : atype, atype);
 	    if (atype)
 		PyMem_Free(atype);
 	}
@@ -485,7 +491,7 @@ _populate_dict_from_rdn_sequence(PyObject *dict, RDNSequence_t *rdnSequence)
 }
 
 static void
-_add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name)
+_add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name, const char *dotted)
 {
     PyObject *value;
     DirectoryString_t *ds = NULL;
@@ -494,16 +500,27 @@ _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name)
     NumericString_t *ns = NULL;
     char encoding[16];	
     char *encoding_key_name;
+    char *oid_key_name;
 
 #define ADD do {									\
+    /* add key/value */									\
     PyDict_SetItemString(dict, key_name, value);					\
     Py_DECREF(value);									\
+    /* add encoding */									\
     value = PyString_FromString(encoding);						\
     encoding_key_name = PyMem_Malloc(strlen(key_name) + strlen(":encoding") + 1);	\
     strcpy(encoding_key_name, key_name);						\
     strcat(encoding_key_name, ":encoding");						\
     PyDict_SetItemString(dict, encoding_key_name, value);				\
     PyMem_Free(encoding_key_name);							\
+    Py_DECREF(value);									\
+    /* add oid string */								\
+    value = PyString_FromString(dotted);						\
+    oid_key_name = PyMem_Malloc(strlen(key_name) + strlen(":oid") + 1);			\
+    strcpy(oid_key_name, key_name);							\
+    strcat(oid_key_name, ":oid");							\
+    PyDict_SetItemString(dict, oid_key_name, value);					\
+    PyMem_Free(oid_key_name);								\
     Py_DECREF(value);									\
 } while (0)
 
