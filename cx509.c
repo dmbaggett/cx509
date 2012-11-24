@@ -57,6 +57,7 @@ static oid_t OIDs[] = {
     { "{ 1.2.840.10045.4.3.3 }", "ecdsa-with-SHA384" },
     { "{ 1.2.840.10045.4.3.4 }", "ecdsa-with-SHA512" },
     { "{ 1.2.840.10046.2.1 }", "dhpublicnumber" }, /* Diffie-Hellman public key */
+    { "{ 1.2.840.113533.7.65.0 }", "entrustVersionExtension" },
     { "{ 1.2.840.113549.1.1.1 }", "rsaEncryption" }, /* RSA public keys */
     { "{ 1.2.840.113549.1.1.10 }", "RSASSA-PSS" },
     { "{ 1.2.840.113549.1.1.11 }", "sha256WithRSAEncryption" },
@@ -100,13 +101,19 @@ static oid_t OIDs[] = {
     { "{ 1.3.14.3.2.7 }", "desCBC" },
     { "{ 1.3.14.3.2.8 }", "desOFB" },
     { "{ 1.3.14.3.2.9 }", "desCFB" },
+    { "{ 1.3.6.1.4.1.311.20.2 }", "certificateTemplateNameDomainController" }, /* http://support.microsoft.com/support/kb/articles/Q291/0/10.ASP */
+    { "{ 1.3.6.1.4.1.311.21.1 }", "certificateCounter" }, /* http://support.microsoft.com/kb/287547?wa=wsignin1.0 */
     { "{ 1.3.6.1.5.5.7.1.1 }", "id-pe-authorityInfoAccess" }, /* private certificate extension */
     { "{ 1.3.6.1.5.5.7.1.12 }", "id-pe-logotype" }, /* private certificate extension */
     { "{ 1.3.6.1.5.5.7.1.2 }", "id-pe-biometricInfo" }, /* private certificate extension */
     { "{ 1.3.6.1.5.5.7.1.3 }", "id-pe-qcStatements" }, /* private certificate extension */
     { "{ 2.16.840.1.101.2.1.1.22 }", "id-keyExchangeAlgorithm" }, /* KEA key */
+    { "{ 2.16.840.1.101.3.4.2.1 }", "sha-256" },
+    { "{ 2.16.840.1.101.3.4.2.2 }", "sha-384" },
+    { "{ 2.16.840.1.101.3.4.2.3 }", "sha-512" },
     { "{ 2.16.840.1.113730.1.1 }", "certificateType" }, /* Netscape extension */
     { "{ 2.16.840.1.113730.1.13 }", "comment" }, /* Netscape extension */
+    { "{ 2.23.42.7.0 }", "id-set-hashedRootKey" },
     { "{ 2.5.29.1 }", "oldAuthorityKeyIdentifier" },
     { "{ 2.5.29.14 }", "subjectKeyIdentifier" },
     { "{ 2.5.29.15 }", "keyUsage" },
@@ -1091,6 +1098,11 @@ find_oid(const char *dotted, int shortname)
 	else
 	    return oids[mid].name;	/* found */
     }
+
+#if 0 /* for debugging missing OIDs: */
+    printf("WARNING: OID not found: %s\n", dotted);
+#endif
+
     return NULL; /* not found */
 }
 
