@@ -105,6 +105,9 @@ static oid_t OIDs[] = {
     { "{ 1.3.14.3.2.9 }", "desCFB" },
     { "{ 1.3.6.1.4.1.311.20.2 }", "certificateTemplateNameDomainController" }, /* http://support.microsoft.com/support/kb/articles/Q291/0/10.ASP */
     { "{ 1.3.6.1.4.1.311.21.1 }", "certificateCounter" }, /* http://support.microsoft.com/kb/287547?wa=wsignin1.0 */
+    { "{ 1.3.6.1.4.1.311.60.2.1.1 }", "jurisdictionOfIncorporationLocalityName" }, /* for EV certs */
+    { "{ 1.3.6.1.4.1.311.60.2.1.2 }", "jurisdictionOfIncorporationStateOrProvinceName" }, /* for EV certs */
+    { "{ 1.3.6.1.4.1.311.60.2.1.3 }", "jurisdictionOfIncorporationCountryName" }, /* for EV certs */
     { "{ 1.3.6.1.5.5.7.1.1 }", "id-pe-authorityInfoAccess" }, /* private certificate extension */
     { "{ 1.3.6.1.5.5.7.1.12 }", "id-pe-logotype" }, /* private certificate extension */
     { "{ 1.3.6.1.5.5.7.1.2 }", "id-pe-biometricInfo" }, /* private certificate extension */
@@ -334,6 +337,11 @@ cx509___str__(cx509 *self)
     size_t count = 0;
     void *allocated, *output;
     PyObject *s = NULL;
+
+    if (!self->certificate) {
+	PyErr_Format(PyExc_ValueError, "empty certificate");
+	return NULL;
+    }
 
     /* just count the number of bytes in the output */
     if (asn_DEF_Certificate.print_struct(&asn_DEF_Certificate, self->certificate, 1, _print2count, (void *) &count))
@@ -806,6 +814,7 @@ cx509_extensions(cx509 *self)
 			    if (rval.code == RC_OK && altName) {
 				dNSNames = PyFrozenSet_New(NULL);
 				for (j = 0; j < altName->list.count; j++) {
+				    /* TBD: we should handle the domainComponent type here, as required by RFC 5280, section 7.3 */
 				    gn = altName->list.array[j];
 				    if (gn && gn->present == GeneralName_PR_dNSName && gn->choice.dNSName.buf) {
 					dNSName = PyString_FromStringAndSize((void *) gn->choice.dNSName.buf, (size_t) gn->choice.dNSName.size);
@@ -866,6 +875,11 @@ cx509_get_public_key(cx509 *self)
     asn_dec_rval_t rval;
     char *modulus;
     char *publicExponent;
+
+    if (!self->certificate) {
+	PyErr_Format(PyExc_ValueError, "empty certificate");
+	return NULL;
+    }
 
     dict = PyDict_New();
     spki = &self->certificate->tbsCertificate.subjectPublicKeyInfo;
@@ -979,6 +993,11 @@ cx509_get_signature_algorithm(cx509 *self, PyObject *args, PyObject *kw)
     if (!PyArg_ParseTupleAndKeywords(args, kw, "O", kwlist, &as_oid))
 	return NULL;
 
+    if (!self->certificate) {
+	PyErr_Format(PyExc_ValueError, "empty certificate");
+	return NULL;
+    }
+
     dotted = _oid_to_string(&self->certificate->signatureAlgorithm.algorithm);
     if (as_oid == Py_True) {
        retval = PyString_FromString(dotted);
@@ -996,6 +1015,11 @@ cx509_get_signature_value(cx509 *self)
 {
     const unsigned char *signature;
     size_t len;
+
+    if (!self->certificate) {
+	PyErr_Format(PyExc_ValueError, "empty certificate");
+	return NULL;
+    }
 
     signature = self->certificate->signature.buf;
     if (!signature)
@@ -1020,6 +1044,11 @@ cx509_get_tbs_certificate_data(cx509 *self)
     size_t count = 0;
     void *allocated, *output;
     PyObject *s;
+
+    if (!self->certificate) {
+	PyErr_Format(PyExc_ValueError, "empty certificate");
+	return NULL;
+    }
 
     /* count number of bytes */
     er = der_encode(&asn_DEF_TBSCertificate, &self->certificate->tbsCertificate, NULL, NULL);
