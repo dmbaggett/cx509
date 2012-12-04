@@ -364,7 +364,6 @@ cx509___str__(cx509 *self)
 static PyObject *
 cx509_get_version(cx509 *self)
 {
-    TBSCertificate_t tbsCertificate;
     Version_t *version;
     long v = 0;
 
@@ -373,14 +372,14 @@ cx509_get_version(cx509 *self)
 	return NULL;
     }
 
-    tbsCertificate = self->certificate->tbsCertificate;
-    version = tbsCertificate.version;
+    version = self->certificate->tbsCertificate.version;
     if (version) {
 	if (asn_INTEGER2long(version, &v) != 0) {
 	    PyErr_Format(PyExc_ValueError, strerror(errno));
 	    return NULL;
 	}
     }
+
     return PyInt_FromLong(v);
 }
 
@@ -536,12 +535,14 @@ _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name, 
 	value = _directory_string_to_string(ds, encoding);
 	if (value)
 	    ADD;
+	asn_DEF_DirectoryString.free_struct(&asn_DEF_DirectoryString, (void *) ds, 0);
     }
     else if (!ANY_to_type(any, &asn_DEF_IA5String, (void *) &ia5) && ia5) {
 	strcpy(encoding, "ia5");
 	value = PyString_FromStringAndSize((void *) ia5->buf, (size_t) ia5->size);
 	if (value)
 	    ADD;
+	asn_DEF_IA5String.free_struct(&asn_DEF_IA5String, (void *) ia5, 0);
     }
     else if (!ANY_to_type(any, &asn_DEF_VisibleString, (void *) &vs) && vs) {
 	/*
@@ -552,6 +553,7 @@ _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name, 
 	value = PyString_FromStringAndSize((void *) vs->buf, (size_t) vs->size);
 	if (value)
 	    ADD;
+	asn_DEF_VisibleString.free_struct(&asn_DEF_VisibleString, (void *) vs, 0);
     }
     else if (!ANY_to_type(any, &asn_DEF_NumericString, (void *) &ns) && ns) {
 	/* 
@@ -562,6 +564,7 @@ _add_directory_string_to_dict(ANY_t *any, PyObject *dict, const char *key_name, 
 	value = PyString_FromStringAndSize((void *) ns->buf, (size_t) ns->size);
 	if (value)
 	    ADD;
+	asn_DEF_NumericString.free_struct(&asn_DEF_NumericString, (void *) ns, 0);
     }
 }
 
@@ -728,6 +731,14 @@ cx509_extensions(cx509 *self)
     extensions = tbsCertificate.extensions;
     if (extensions) {
 	for (i = 0; i < extensions->list.count; i++) {
+	    /* reset values we may set below */
+	    basicConstraints = NULL;
+	    basicConstraints_pathlen = 0;
+	    keyUsage = NULL;
+	    keyUsageFlags = NULL;
+	    altName = NULL;
+	    gn = NULL;
+
 	    dict = PyDict_New();
 	    ext = extensions->list.array[i];
 	    oid = _oid_to_string(&ext->extnID);
@@ -804,7 +815,9 @@ cx509_extensions(cx509 *self)
 				    }
 				}
 				PyDict_SetItemString(dict, "keyUsage", keyUsageFlags);
+				Py_DECREF(keyUsageFlags);
 			    }
+			    asn_DEF_KeyUsage.free_struct(&asn_DEF_KeyUsage, (void *) keyUsage, 0);
 			}
 		    }
 		    else if (!strcmp(extension_name, "subjectAltName") || !strcmp(extension_name, "issuerAltName")) {
@@ -824,9 +837,9 @@ cx509_extensions(cx509 *self)
 				}
 				if (PySet_Size(dNSNames))
 				    PyDict_SetItemString(dict, "dNSName", dNSNames);
-				else
-				    Py_DECREF(dNSNames);
+				Py_DECREF(dNSNames);
 			    }
+			    asn_DEF_GeneralNames.free_struct(&asn_DEF_GeneralNames, (void *) altName, 0);
 			}
 		    }
 		    else if (!strcmp(extension_name, "basicConstraints")) {
@@ -842,6 +855,7 @@ cx509_extensions(cx509 *self)
 			    }
 			    else
 				printf("failed to parse basicConstraints\n");
+			    asn_DEF_BasicConstraints.free_struct(&asn_DEF_BasicConstraints, (void *) basicConstraints, 0);
 			}
 		    }
 		    else if (!strcmp(extension_name, "nameConstraints")) {
@@ -868,8 +882,8 @@ static PyObject *
 cx509_get_public_key(cx509 *self)
 {
     PyObject *dict, *tmp;
-    const char *algorithm_oid;
-    const char *algorithm_name;
+    const char *algorithm_oid = NULL;
+    const char *algorithm_name = NULL;
     SubjectPublicKeyInfo_t *spki;
     RSAPublicKey_t *rsapk = NULL;
     asn_dec_rval_t rval;
@@ -928,11 +942,11 @@ cx509_get_public_key(cx509 *self)
 		Py_DECREF(tmp);
 	    }
 	}
-	else {
-	    /* Free partially decoded RSAPublicKey */
-	    asn_DEF_RSAPublicKey.free_struct(&asn_DEF_RSAPublicKey, rsapk, 0);
-	}
+	asn_DEF_RSAPublicKey.free_struct(&asn_DEF_RSAPublicKey, rsapk, 0);
     }
+
+    if (algorithm_oid)
+	PyMem_Free(algorithm_oid);
     
     return dict;
 }
@@ -965,6 +979,8 @@ cx509_parse_digest_info(cx509 *self, PyObject *args, PyObject *kw)
 	    tmp = PyString_FromString((void *) (algorithm_name ? algorithm_name : dotted));
 	    PyDict_SetItemString(dict, "algorithm", tmp);
 	    Py_DECREF(tmp);
+
+	    PyMem_Free(dotted);
 	}
 	if (di->digest.buf && di->digest.size) {
 	    tmp = PyString_FromStringAndSize((void *) di->digest.buf, (size_t) di->digest.size);
@@ -973,11 +989,10 @@ cx509_parse_digest_info(cx509 *self, PyObject *args, PyObject *kw)
 	}
     }
     else {
-	/* Free partially decoded DigestInfo */
-	asn_DEF_DigestInfo.free_struct(&asn_DEF_DigestInfo, di, 0);
 	PyErr_Format(PyExc_ValueError, "failed to parse DigestInfo");
-	return NULL;
+	dict = NULL;
     }
+    asn_DEF_DigestInfo.free_struct(&asn_DEF_DigestInfo, di, 0);
     return dict;
 }
 
@@ -986,7 +1001,7 @@ cx509_get_signature_algorithm(cx509 *self, PyObject *args, PyObject *kw)
 {
     static char *kwlist[] = { "as_oid", NULL };
     PyObject *as_oid = NULL;
-    char *dotted;
+    char *dotted = NULL;
     const char *algorithm_name;
     PyObject *retval;
 
@@ -1006,7 +1021,8 @@ cx509_get_signature_algorithm(cx509 *self, PyObject *args, PyObject *kw)
 	algorithm_name = find_oid(dotted, /*shortname:*/ 0);
 	retval = PyString_FromString(algorithm_name ? algorithm_name : dotted);
     }
-    PyMem_Free(dotted);
+    if (dotted)
+	PyMem_Free(dotted);
     return retval;
 }
 
@@ -1170,8 +1186,10 @@ _integer_to_hex_string(INTEGER_t *iptr)
 }
 
 static void
-cx509_free(PyObject *self)
+cx509_free(cx509 *self)
 {
+    asn_DEF_Certificate.free_struct(&asn_DEF_Certificate, self->certificate, 0);
+    self->certificate = NULL;
     Py_TYPE(self)->tp_free(self);
 }
 
