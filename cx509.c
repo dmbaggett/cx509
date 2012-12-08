@@ -375,7 +375,7 @@ cx509_get_version(cx509 *self)
     version = self->certificate->tbsCertificate.version;
     if (version) {
 	if (asn_INTEGER2long(version, &v) != 0) {
-	    PyErr_Format(PyExc_ValueError, strerror(errno));
+	    PyErr_Format(PyExc_ValueError, "%s", strerror(errno));
 	    return NULL;
 	}
     }
@@ -882,7 +882,7 @@ static PyObject *
 cx509_get_public_key(cx509 *self)
 {
     PyObject *dict, *tmp;
-    const char *algorithm_oid = NULL;
+    char *algorithm_oid = NULL;
     const char *algorithm_name = NULL;
     SubjectPublicKeyInfo_t *spki;
     RSAPublicKey_t *rsapk = NULL;
@@ -1219,7 +1219,7 @@ static PyTypeObject cx509Type = {
     "cx509.cx509",  		/*tp_name*/
     sizeof(cx509),  		/*tp_basicsize*/
     0,                         /*tp_itemsize*/
-    cx509_free,     		/*tp_dealloc*/
+    (destructor) cx509_free,   /*tp_dealloc*/
     0,                         /*tp_print*/
     0,                         /*tp_getattr*/
     0,                         /*tp_setattr*/
