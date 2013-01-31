@@ -6,10 +6,7 @@ from glob import glob
 
 __version__ = "1.0.0"
 
-if sys.platform == "darwin":
-    extra_flags=['-arch', 'i386', '-arch', 'x86_64']
-else:
-    extra_flags=[]
+extra_flags=[]
 
 # Add prebuilt X.509 C sources to sources list
 sources = glob(os.path.normpath("asn1c/examples/sample.source.PKIX1/*.c"))
