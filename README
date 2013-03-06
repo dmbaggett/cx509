@@ -1,6 +1,8 @@
 The cx509 extension essentially wraps a machine-generated pure C X.509
 certificate parser. We use asn1c to generate the parser code; the
-relevant files reside under
+setup.py file will retrieve a suitable copy if you don't have one already.
+
+The relevant files for X.509 prasing reside under
 
   asn1c/examples/sample.source.PKIX1
 
@@ -19,5 +21,3 @@ Note that you should not need to build and run the asn1c compiler
 unless you want to update the code to use later ASN.1 definitions; the
 asn1c directory linked here already has pre-built code that should be
 cross-platform compatible.
-
-
