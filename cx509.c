@@ -325,7 +325,7 @@ static int _print2count(const void *buffer, size_t size, void *app_key)
 /* copy the string output to the specified output buffer */
 static int _print2buffer(const void *buffer, size_t size, void *app_key)
 {
-    void **output = (void **) app_key;
+    char **output = (char **) app_key;
     memcpy(*output, buffer, size);
     *output += size;
     return 0;
